@@ -1,0 +1,272 @@
+# Armando HTTP API [v1]
+
+This file defines and documents all the available RESTful API resources and
+configuration for Armando, which extends the already
+[existing API](https://github.com/techninja/cncserver/blob/master/API.md) for
+[CNC Server](https://github.com/techninja/cncserver) running underneath it.
+RESTful practices are all HTTP based and accessible by any system or devices
+that can access a web page. METHODs are used to differentiate what is being done
+to a particular resource.
+
+All resources should be requested with, and *return* JSON data, regardless of
+status code. Though for non-GET requests, you can pass variables as either JSON,
+form encoded, or any other well-known standard, as long as you set the
+`Content-Type` header to match.
+
+In each request example below, the server is assumed to be added to the
+beginning of each resource, E.G.: `GET http://localhost:4242/armando/v1/print` will `GET` the
+print status of the bot from a server plugged into the local computer, at the default
+port of `4242`. Your host and port may be different, so they're excluded.
+
+If you want to test any of these, try out
+[Postman for Google Chrome](https://www.getpostman.com/apps).
+It allows for easy testing of any RESTful HTTP method to even remote servers.
+
+![f1a930d0641920f074aeb32ebc512408](https://f.cloud.github.com/assets/320747/920613/894669a2-fee1-11e2-8349-dc6ad8cd805d.png)
+
+An easy to use Postman JSON config file is now available in the repo
+[here](https://github.com/yendo-eng/cncserver/raw/master/api/armando_api.postman.json).
+This supplies all the current API resources in a simple click and send test
+environment, just import, and setup two global variables `cncserver-host` and
+`cncserver-port`. If running on just one computer, these will be by default
+`localhost` and `4242` respectively.
+
+
+***NOTE:*** *Any comments visible in responses/JSON payload in the documentation
+below are just to help make it easier to understand what's being sent. Comments
+are* ***not allowed*** *in JSON data and will not exist in returned data.*
+
+## 1. Print
+The `print` resource is meant to act as the input/output for anything having
+directly to do with drawing an SVG automatically. This allows for simple
+interchange and automatic painting remotely of any SVG image sent over.
+
+### GET /armando/v1/print
+Gets the current printing status. This includes a simplified view of the print
+queue, so it will include all past and current print items.
+
+#### Request
+```javascript
+GET /armando/v1/print
+```
+
+#### Response
+```javascript
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=UTF-8
+
+{
+    "status": true,                             // Status of the print API
+    "ready": true,                              // Readiness of operator/machine
+    "items": 1,                                 // Number of items
+    "queue": [                                  // Full queue output
+        {
+            "uri": "/armando/v1/print/0",     // URI of item detail resource
+            "name": "Blue Star",                // Name given to item
+            "status": "printing",               // Status of individual item
+            "percentComplete": 42               // Percent of operation complete
+        },
+    ]
+}
+```
+
+##### Usage Notes
+ * `status`: Boolean, defaults to true, will always be on unless feature has
+ been disabled.
+ * `ready`: Boolean, whether the operator says the machine is ready to print.
+ * Queue will be emptied on every application start, and will contain every item
+sent and verified, including "deleted" ones, marked as canceled.
+
+
+* * *
+
+
+### POST /armando/v1/print
+This attempts to create a print queue item from an SVG (and a few options). The
+following examples will describe a single submit, and most of the possible
+responses.
+
+#### Request Example
+```javascript
+POST /armando/v1/print
+Content-Type: application/json; charset=UTF-8
+
+{
+    "options": {                            // Required Options Object
+        "name": "Red Star",                 // Required name
+        "noresize": true                    // Optional high level option
+        "settingsOverrides" : {             // Armando settings overrides
+            "filltype": "zigsmooth",
+            "strokeprecision": 3
+        }
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\">..."
+}
+
+```
+
+#### Response Example #1 (Remote Paint mode disabled)
+```javascript
+HTTP/1.1 403 Forbidden
+Content-Type: application/json; charset=UTF-8
+
+{
+    "status": "The SVG import API is currently disabled."
+}
+
+```
+
+#### Response Example #2 (Success!)
+```javascript
+HTTP/1.1 201 Created
+Content-Type: application/json; charset=UTF-8
+
+{
+    "status": "verified and added to queue",
+    "id": 3,                                      // Queue item index/id
+    "uri": "/armando/v1/print/3",               // URI the item can be seen at
+    "item": {
+        ...                                       // Original item payload
+        "status": "waiting"                       // Current item status
+        "pathCount": 8,                           // Number of paths in SVG
+        "percentComplete": 0,                     // Percent complete
+        "startTime": "2014-07-29T07:49:20.850Z",  // ISO date of start time
+        "endTime": null,                          // End Time
+        "secondsTaken": null                      // Time taken, in seconds
+    }
+}
+
+```
+
+#### Ready state override:
+You can also force the ready state of the operator by sending only
+"ready: [true/false]", see example below. Note the mode _must_ be enabled, and
+not actively printing, or the request will be ignored/denied.
+
+#### Request Example
+```javascript
+POST /armando/v1/print
+Content-Type: application/json; charset=UTF-8
+
+{
+    "ready": true    // You can force the ready state to true or false.
+}
+
+```
+
+
+##### Usage Notes
+ * As noted, `svg`, `options`, and `options.name` are all required, and the API
+will deny any request that doesn't have these, unless you're only setting the
+ready state.
+ * The SVG field should be the full XML from an SVG file, escaped properly, or
+JSON encoding will be broken. Most JSON formatters handle this automatically.
+ * The SVG format errors come from one of three places: the XML DOM parser,
+the method-draw cleaning/open routine, or Armando's custom cleaning functions.
+You may not get a clear idea from which one it comes, or exactly what's wrong,
+but most of the time, all that's needed is to open the document in Inkscape or
+another program, remove any odd groupings or clipping paths, save and try again.
+ * Only the `noresize` option has been added so far as an explicit import option.
+When set to true, image will not "fit to page". Ignore this setting to allow
+default SVG fitting (small images will enlarge, large or out of bounding box
+images will size down).
+ * The optional `settingsOverrides` option is intended to directly override
+Armando settings pertaining to print aesthetics for that print only. See
+[Appendix a.](#appendix-a) for the white-listed set of overridable settings and
+their acceptable value ranges.
+
+
+* * *
+
+
+### GET /armando/v1/print/{queueID}
+Get a specific queue item details by queue ID.
+
+#### Request
+```javascript
+GET /armando/v1/print/1
+```
+
+### Response
+```javascript
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=UTF-8
+
+{
+    "status": "complete",
+    "options": {
+        "name": "Red Star",
+        "noresize": true
+    },
+    "pathCount": 1,
+    "percentComplete": 100,
+    "startTime": "2014-07-29T08:28:18.308Z",
+    "endTime": "2014-07-29T08:30:56.015Z",
+    "secondsTaken": 157.707,
+    "svg": "<svg xmlns=...",
+    "printingStatus": "AutoPaint Complete!"
+}
+```
+
+##### Usage Notes
+ * `printingStatus` is the always updating status text given by Armando as
+a "play-by-play" of what the bot is doing, also visible on the GUI during
+painting.
+ * `endTime` and `secondsTaken` are only set after full painting completion or
+cancellation
+
+
+* * *
+
+
+### DELETE /armando/v1/print/{queueID}
+Cancel a currently printing queue item.
+
+#### Request
+```javascript
+DELETE /armando/v1/print/1
+```
+
+### Response
+```javascript
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=UTF-8
+
+{
+    "status": "cancelled",
+    ...                       // Complete queue item object
+}
+```
+
+##### Usage Notes
+ * Will only work on currently printing or waiting queue items, otherwise will
+return `406 Not Acceptable`.
+
+
+* * *
+
+
+## Appendix A.
+
+`options.settingsOverride` for printing preferences is a key: value pair
+intended to allow per print changing of any of the following white-listed
+Armando settings during POST request for new images. These are the allowable
+machine names to be used as keys, and the value ranges to be used*.
+
+| Name                  | Machine Name       |Default | Acceptable Range  |
+| --------------------- | ------------------ | -----  | -----  |
+| Latency Offset        | `latencyoffset`    | 20 | -50 to 200 (ms) |
+| Move Speed            | `movespeed`        | 75 | 10 to 90 (%) |
+| Paint Speed           | `paintspeed`       | 75 | 10 to 90 (%)  |
+| Fill Type             | `filltype`         | `line-straight` | `line-straight`, `line-triangle`, `line-sine`, `spiral` |
+| Line Fill Angle       | `fillangle`        | 0 | 0, 45, 90 (degrees) |
+| Line Fill Spacing     | `fillspacing`      | 10 | 1 to 50 (px) |
+| Paint Refill Distance | `maxpaintdistance` | 8040 | 500 to 20000 (stepper steps, 16.7mm per) |
+| Fill Precision        | `fillprecision`    | 14 | 1 to 35 |
+| Stroke Precision      | `strokeprecision`  | 5 | 1 to 15 |
+| Brush Overshoot       | `strokeovershoot`  | 6 | 0 to 20 (mm) |
+| Connect Gaps?         | `gapconnect`       | 1 | 1 or 0 (boolean) |
+
+* *Most of the internal functions that use these values have sanity checks,
+though some do not and will technically allow values outside their stated ranges.
+Any values outside these ranges or types of course can not be expected to actually work.*

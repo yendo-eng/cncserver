@@ -47,7 +47,7 @@ cncserver.globalConfigDefaults = {
   bufferLatencyOffset: 30, // Number of ms to move each command closer together
   corsDomain: '*', // Start as open to CORs enabled browser clients
   debug: false,
-  botType: 'watercolorbot',
+  botType: 'axidraw',
   scratchSupport: true,
   flipZToggleBit: false,
   botOverride: {
@@ -86,6 +86,8 @@ require('./src/cncserver.control.js')(cncserver);
 
 // Run/Queue/Buffer management functionality.
 require('./src/cncserver.queue.js')(cncserver);
+
+// require('./src/remote/remote.api.js')(cncserver);
 
 
 // STATE VARIABLES =============================================================
